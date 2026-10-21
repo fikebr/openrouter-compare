@@ -4,6 +4,15 @@ Send a prompt from a UTF-8 text file to multiple text models in parallel.
 Each model gets a separate TXT output containing its response, elapsed request
 time, input/output/total tokens, reported USD cost, and finish reason.
 
+Add `--image` to send a local JPEG, PNG, WebP, or GIF alongside the prompt:
+
+```powershell
+uv run .\compare_models.py .\prompt_salmon_cocktail.txt --image .\liquor_cabinet.jpg
+```
+
+The image is encoded and sent to every configured model. Choose models that
+support image input. Without `--image`, the request contains only text.
+
 ## Windows PowerShell quick start
 
 Requires uv. Extract this folder and open a terminal in it.

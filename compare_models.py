@@ -5,6 +5,7 @@
 """Send one UTF-8 prompt to several OpenRouter models in parallel."""
 import argparse
 import asyncio
+import base64
 import json
 import os
 import re
@@ -67,6 +68,7 @@ async def run_model(client, model, prompt, folder, index, max_tokens):
 async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("prompt", type=Path, help="UTF-8 .txt prompt file")
+    parser.add_argument("--image", type=Path, help="Local JPEG, PNG, WebP, or GIF image to send with the prompt")
     parser.add_argument("--models", nargs="+", help="OpenRouter model IDs (overrides config)")
     parser.add_argument("--config", type=Path,
                         default=Path(__file__).resolve().with_name("config.json"),
@@ -99,6 +101,22 @@ async def main():
         parser.error(str(exc))
     if not prompt.strip():
         parser.error("Prompt file is empty")
+    if args.image is not None:
+        mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                ".webp": "image/webp", ".gif": "image/gif"}.get(args.image.suffix.lower())
+        if mime is None:
+            parser.error("--image must be a JPEG, PNG, WebP, or GIF file")
+        try:
+            image_bytes = args.image.read_bytes()
+        except OSError as exc:
+            parser.error(f"Cannot read image {args.image}: {exc}")
+        if not image_bytes:
+            parser.error("Image file is empty")
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        prompt = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
+        ]
     folder = args.out / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     folder.mkdir(parents=True, exist_ok=False)
     async with httpx.AsyncClient(

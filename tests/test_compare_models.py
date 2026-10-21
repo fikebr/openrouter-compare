@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,44 @@ import compare_models as app
 
 
 class ModelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cli_image_payload_and_invalid_files(self):
+        real_client = httpx.AsyncClient
+        requests = []
+        image_bytes = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9X8AAAAASUVORK5CYII="
+        )
+        def handler(request):
+            requests.append(json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"message": {"content": "Done"}}]})
+        def client_factory(**kwargs):
+            return real_client(transport=httpx.MockTransport(handler), **kwargs)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "prompt.txt").write_text("Suggest a cocktail")
+            image = root / "cabinet.PNG"
+            image.write_bytes(image_bytes)
+            argv = ["compare_models.py", str(root / "prompt.txt"), "--models", "one", "two",
+                    "--out", str(root / "outputs"), "--image", str(image)]
+            with patch.dict(os.environ, {"OPENROUTER_API_KEY": "fake"}), \
+                    patch.object(sys, "argv", argv), \
+                    patch.object(app.httpx, "AsyncClient", client_factory):
+                self.assertEqual(await app.main(), 0)
+                self.assertEqual(len(requests), 2)
+                for body in requests:
+                    content = body["messages"][0]["content"]
+                    self.assertEqual(content[0], {"type": "text", "text": "Suggest a cocktail"})
+                    self.assertEqual(content[1]["type"], "image_url")
+                    prefix, encoded = content[1]["image_url"]["url"].split(",", 1)
+                    self.assertEqual(prefix, "data:image/png;base64")
+                    self.assertEqual(base64.b64decode(encoded), image_bytes)
+                image.write_bytes(b"")
+                for path in (image, root / "missing.jpg", root / "unsupported.txt"):
+                    argv[-1] = str(path)
+                    with self.assertRaises(SystemExit) as caught:
+                        await app.main()
+                    self.assertEqual(caught.exception.code, 2)
+                self.assertEqual(len(requests), 2)
+
     async def run_case(self, handler, models=("vendor/model",)):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
