@@ -1,0 +1,31 @@
+test_cli_env_utf8_bom_and_output (test_compare_models.ModelTests.test_cli_env_utf8_bom_and_output) ... ok
+test_cli_rejects_empty_prompt (test_compare_models.ModelTests.test_cli_rejects_empty_prompt) ... usage: compare_models.py [-h] --models MODELS [MODELS ...] [--out OUT]
+                         [--env ENV] [--max-tokens MAX_TOKENS]
+                         [--timeout TIMEOUT]
+                         prompt
+compare_models.py: error: Prompt file is empty
+ok
+test_http_failure_does_not_stop_other_models (test_compare_models.ModelTests.test_http_failure_does_not_stop_other_models) ... ok
+test_parallel_and_filename_collisions (test_compare_models.ModelTests.test_parallel_and_filename_collisions) ... ok
+test_success_usage_and_request (test_compare_models.ModelTests.test_success_usage_and_request) ... ok
+test_timeout_and_api_error (test_compare_models.ModelTests.test_timeout_and_api_error) ... ok
+test_zero_and_missing_cost (test_compare_models.ModelTests.test_zero_and_missing_cost) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.020s
+
+OK
+OK: /tmp/tmpbkclsgwp/outputs/20261021_120341_391818/01_one.txt | 0.00s | unavailable
+OK: /tmp/tmpbkclsgwp/outputs/20261021_120341_391818/02_two.txt | 0.00s | unavailable
+ERROR: /tmp/tmp8hxvzkjl/01_bad.txt | 0.00s | unavailable
+OK: /tmp/tmp8hxvzkjl/02_good.txt | 0.00s | unavailable
+OK: /tmp/tmpbmprhn8o/02_a_b.txt | 0.00s | unavailable
+OK: /tmp/tmpbmprhn8o/01_a_b.txt | 0.00s | unavailable
+OK: /tmp/tmpan_6556f/01_vendor_model.txt | 0.00s | $0.0012300000
+ERROR: /tmp/tmpegvj0pp7/01_timeout.txt | 0.00s | unavailable
+ERROR: /tmp/tmpegvj0pp7/02_api_error.txt | 0.00s | unavailable
+OK: /tmp/tmpmm57ccbg/01_zero.txt | 0.00s | $0.0000000000
+OK: /tmp/tmpmm57ccbg/02_missing.txt | 0.00s | unavailable
+
+uv run compare_models.py --help: PASS (inline dependencies installed successfully).
+No live OpenRouter requests were made.
