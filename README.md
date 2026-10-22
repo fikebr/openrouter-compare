@@ -7,7 +7,7 @@ time, input/output/total tokens, reported USD cost, and finish reason.
 Add `--image` to send a local JPEG, PNG, WebP, or GIF alongside the prompt:
 
 ```powershell
-uv run .\compare_models.py .\prompt_salmon_cocktail.txt --image .\liquor_cabinet.jpg
+uv run .\compare_models.py .\prompts\salmon_cocktail.txt --image .\liquor_cabinet.jpg
 ```
 
 The image is encoded and sent to every configured model. Choose models that
@@ -22,7 +22,7 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Set your OpenRouter key in `.env`. Put your prompt in `prompt.txt`.
+Set your OpenRouter key in `.env`. Put your prompt in `prompts\python_automations.txt`.
 Edit `config.json` beside the script and replace its placeholder model IDs with
 the exact OpenRouter model IDs you want to compare:
 
@@ -35,7 +35,7 @@ the exact OpenRouter model IDs you want to compare:
 Then run:
 
 ```powershell
-uv run .\compare_models.py .\prompt.txt
+uv run .\compare_models.py .\prompts\python_automations.txt
 ```
 
 Use `--prompt-inject` to append extra text to the prompt, separated by a blank
@@ -46,7 +46,7 @@ Add `--web-search` to enable OpenRouter's web search server tool. OpenRouter
 handles tool execution; search can incur additional charges.
 
 ```powershell
-uv run .\compare_models.py .\prompt_political_news.txt --web-search --prompt-inject "Today's date is 2026-10-22."
+uv run .\compare_models.py .\prompts\political_news.txt --web-search --prompt-inject "Today's date is 2026-10-22."
 ```
 
 uv installs the dependencies declared in the script automatically. No manual
@@ -57,20 +57,28 @@ paths are resolved from your terminal's current directory. `--models` overrides
 the config's model list for a single run.
 
 ```powershell
-uv run .\compare_models.py .\prompt.txt --models "vendor/model-one" "vendor/model-two" --out .\results --max-tokens 8000 --timeout 600
+uv run .\compare_models.py .\prompts\python_automations.txt --models "vendor/model-one" "vendor/model-two" --out .\results --max-tokens 8000 --timeout 600
 ```
 
 `--env path` selects another .env file. Default paths are relative to your
 terminal's current directory. Existing environment variables take precedence
 over .env values.
 
-Each run creates a new timestamped subfolder under `outputs` (or `--out`).
-It also creates `summary.md` in that folder, starting with the prompt, followed
+Each run saves files in a date folder under `outputs` (or `--out`):
+
+```text
+outputs\20261022\115100 - get_rich - anthropic_claude-opus-5.5.txt
+outputs\20261022\115100 - get_rich - summary.md
+```
+
+The prompt name excludes its extension. The summary starts with the prompt, followed
 by a table of model status, input/output/total tokens, time, and cost, then each
 model's full response. Image runs include the image filename. Failed requests
 are included with their error messages and any available statistics.
-Model names are sanitized for Windows filenames and numbered to prevent
-collisions. Failed requests write error files while the other requests continue.
+Model and prompt names are sanitized for Windows filenames. Duplicate model
+filenames receive numeric suffixes. Runs with the same prompt in the same second
+are rejected if their files already exist, preventing overwrites. Each summary
+includes only its own run. Failed requests write error files while the other requests continue.
 Exit status is 1 if any model fails, otherwise 0; invalid CLI input exits 2.
 
 Response time is full HTTP request duration, not time to first token. Cost is

@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 import sys
 import tempfile
@@ -15,6 +16,38 @@ import compare_models as app
 
 
 class ModelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_dated_filenames_and_summary_isolation(self):
+        real_client = httpx.AsyncClient
+        def handler(request):
+            return httpx.Response(200, json={"choices": [{"message": {"content": "Done"}}]})
+        def client_factory(**kwargs):
+            return real_client(transport=httpx.MockTransport(handler), **kwargs)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prompt = root / "prompt_get_rich.txt"
+            prompt.write_text("How do I get rich?")
+            folder = root / "outputs" / "20261022"
+            folder.mkdir(parents=True)
+            (folder / "unrelated.txt").write_text("Must not be parsed")
+            argv = ["compare_models.py", str(prompt), "--models", "a/b", "a:b",
+                    "--out", str(root / "outputs")]
+            with patch.dict(os.environ, {"OPENROUTER_API_KEY": "fake"}), \
+                    patch.object(sys, "argv", argv), \
+                    patch.object(app.httpx, "AsyncClient", client_factory), \
+                    patch.object(app, "datetime") as clock:
+                clock.now.return_value = datetime(2026, 10, 22, 11, 51, 0)
+                self.assertEqual(await app.main(), 0)
+                summary_path = folder / "115100 - prompt_get_rich - summary.md"
+                summary = summary_path.read_text(encoding="utf-8")
+                for name in ("a_b", "a_b_2"):
+                    self.assertTrue((folder / f"115100 - prompt_get_rich - {name}.txt").exists())
+                self.assertIn("115100%20-%20prompt_get_rich%20-%20a_b.txt", summary)
+                self.assertNotIn("unrelated", summary)
+                with self.assertRaises(SystemExit) as caught:
+                    await app.main()
+                self.assertEqual(caught.exception.code, 2)
+                self.assertEqual(summary_path.read_text(encoding="utf-8"), summary)
+
     async def test_web_search_tool_opt_in(self):
         bodies = []
         def handler(request):
@@ -51,7 +84,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
                     patch.object(app.httpx, "AsyncClient", client_factory):
                 self.assertEqual(await app.main(), 0)
                 self.assertEqual(len(requests), 2)
-                summary = next((root / "outputs").glob("*/summary.md")).read_text(encoding="utf-8")
+                summary = next((root / "outputs").glob("*/* - summary.md")).read_text(encoding="utf-8")
                 self.assertTrue(summary.startswith("Suggest a cocktail\n"))
                 self.assertIn("Suggest a cocktail\n\nDinner is tonight.", summary)
                 self.assertEqual((root / "prompt.txt").read_text(), "Suggest a cocktail")
@@ -170,7 +203,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
                     patch.object(app.httpx, "AsyncClient", client_factory):
                 self.assertEqual(await app.main(), 0)
             self.assertEqual(len(list((root / "outputs").glob("*/*.txt"))), 2)
-            summary = next((root / "outputs").glob("*/summary.md")).read_text(encoding="utf-8")
+            summary = next((root / "outputs").glob("*/* - summary.md")).read_text(encoding="utf-8")
             self.assertTrue(summary.startswith("Prompt café\n"))
             self.assertIn("Prompt café\n\nToday's date is 2026-10-22.", summary)
             self.assertLess(summary.index("## Run statistics"), summary.index("## Responses"))
@@ -233,7 +266,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(SystemExit) as caught:
                     await app.main()
                 self.assertEqual(caught.exception.code, 2)
-                argv.extend(["--models", "override"])
+                argv.extend(["--models", "override", "--out", str(root / "override_outputs")])
                 self.assertEqual(await app.main(), 0)
                 self.assertEqual(requested[-1], "override")
 

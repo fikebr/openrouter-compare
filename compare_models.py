@@ -18,7 +18,7 @@ import httpx
 from dotenv import load_dotenv
 
 
-async def run_model(client, model, prompt, folder, index, max_tokens, web_search=False):
+async def run_model(client, model, prompt, folder, index, max_tokens, web_search=False, output=None):
     start = time.perf_counter()
     data, status = {}, "OK"
     try:
@@ -50,7 +50,7 @@ async def run_model(client, model, prompt, folder, index, max_tokens, web_search
     cost_text = f"${float(cost):.10f}" if isinstance(cost, (int, float)) else "unavailable"
     finish = (data.get("choices") or [{}])[0].get("finish_reason", "unavailable")
     filename = re.sub(r"[^A-Za-z0-9._-]", "_", model)[:140]
-    output = folder / f"{index:02d}_{filename}.txt"
+    output = output if output is not None else folder / f"{index:02d}_{filename}.txt"
     output.write_text(
         f"Requested model: {model}\n"
         f"Returned model: {data.get('model', 'unavailable')}\n"
@@ -69,7 +69,7 @@ async def run_model(client, model, prompt, folder, index, max_tokens, web_search
     return status == "OK"
 
 
-def write_summary(folder, prompt, image=None):
+def write_summary(folder, prompt, image=None, outputs=None, summary=None):
     """Combine this run's saved outputs into a Markdown report."""
     lines = [prompt.strip(), ""]
     if image is not None:
@@ -80,7 +80,7 @@ def write_summary(folder, prompt, image=None):
         "|---|---|---:|---:|---:|---:|---:|",
     ])
     responses = []
-    for output in sorted(folder.glob("*.txt")):
+    for output in outputs if outputs is not None else sorted(folder.glob("*.txt")):
         headers, text = output.read_text(encoding="utf-8").split("\n--- RESPONSE ---\n", 1)
         fields = dict(line.split(": ", 1) for line in headers.splitlines() if ": " in line)
         model = fields["Requested model"]
@@ -93,7 +93,7 @@ def write_summary(folder, prompt, image=None):
     lines.extend(["", "Time is the full HTTP request duration. Output token counts include reasoning "
                   "tokens when reported by the provider. Cost is reported by OpenRouter.",
                   "", "## Responses", *responses, ""])
-    summary = folder / "summary.md"
+    summary = summary if summary is not None else folder / "summary.md"
     summary.write_text("\n".join(lines), encoding="utf-8")
     print(f"Summary: {summary}")
 
@@ -155,16 +155,38 @@ async def main():
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}},
         ]
-    folder = args.out / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    folder.mkdir(parents=True, exist_ok=False)
+    now = datetime.now()
+    folder = args.out / now.strftime("%Y%m%d")
+    folder.mkdir(parents=True, exist_ok=True)
+    prompt_name = re.sub(r"[^A-Za-z0-9._-]", "_", args.prompt.stem)[:70]
+    prefix = f"{now:%H%M%S} - {prompt_name} - "
+    summary = folder / f"{prefix}summary.md"
+    outputs = []
+    used_names = set()
+    for model in args.models:
+        model_name = re.sub(r"[^A-Za-z0-9._-]", "_", model)[:100]
+        name = model_name
+        suffix = 2
+        while name.lower() in used_names:
+            name = f"{model_name}_{suffix}"
+            suffix += 1
+        used_names.add(name.lower())
+        outputs.append(folder / f"{prefix}{name}.txt")
+    if any(path.exists() for path in [summary, *outputs]):
+        parser.error("Output files already exist for this prompt and second; run again to avoid overwriting them")
+    try:
+        with summary.open("x", encoding="utf-8"):
+            pass
+    except FileExistsError:
+        parser.error("Another run already started for this prompt and second; run again")
     async with httpx.AsyncClient(
         headers={"Authorization": f"Bearer {key}"}, timeout=args.timeout,
     ) as client:
         results = await asyncio.gather(*[
-            run_model(client, model, prompt, folder, i, args.max_tokens, args.web_search)
+            run_model(client, model, prompt, folder, i, args.max_tokens, args.web_search, outputs[i - 1])
             for i, model in enumerate(args.models, start=1)
         ])
-    write_summary(folder, prompt_text, args.image)
+    write_summary(folder, prompt_text, args.image, outputs, summary)
     return 0 if all(results) else 1
 
 
