@@ -38,6 +38,17 @@ Then run:
 uv run .\compare_models.py .\prompt.txt
 ```
 
+Use `--prompt-inject` to append extra text to the prompt, separated by a blank
+line. The combined prompt is sent to every model and included in `summary.md`;
+the original prompt file is unchanged.
+
+Add `--web-search` to enable OpenRouter's web search server tool. OpenRouter
+handles tool execution; search can incur additional charges.
+
+```powershell
+uv run .\compare_models.py .\prompt_political_news.txt --web-search --prompt-inject "Today's date is 2026-10-22."
+```
+
 uv installs the dependencies declared in the script automatically. No manual
 pip install, activation, or project initialization is needed.
 
@@ -54,6 +65,10 @@ terminal's current directory. Existing environment variables take precedence
 over .env values.
 
 Each run creates a new timestamped subfolder under `outputs` (or `--out`).
+It also creates `summary.md` in that folder, starting with the prompt, followed
+by a table of model status, input/output/total tokens, time, and cost, then each
+model's full response. Image runs include the image filename. Failed requests
+are included with their error messages and any available statistics.
 Model names are sanitized for Windows filenames and numbered to prevent
 collisions. Failed requests write error files while the other requests continue.
 Exit status is 1 if any model fails, otherwise 0; invalid CLI input exits 2.

@@ -15,6 +15,18 @@ import compare_models as app
 
 
 class ModelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_web_search_tool_opt_in(self):
+        bodies = []
+        def handler(request):
+            bodies.append(json.loads(request.content))
+            return httpx.Response(200, json={"choices": [{"message": {"content": "News"}}]})
+        with tempfile.TemporaryDirectory() as tmp:
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                for index, enabled in enumerate((False, True), 1):
+                    self.assertTrue(await app.run_model(client, "model", "News?", Path(tmp), index, 42, enabled))
+        self.assertNotIn("tools", bodies[0])
+        self.assertEqual(bodies[1]["tools"], [{"type": "openrouter:web_search"}])
+
     async def test_cli_image_payload_and_invalid_files(self):
         real_client = httpx.AsyncClient
         requests = []
@@ -32,15 +44,22 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
             image = root / "cabinet.PNG"
             image.write_bytes(image_bytes)
             argv = ["compare_models.py", str(root / "prompt.txt"), "--models", "one", "two",
-                    "--out", str(root / "outputs"), "--image", str(image)]
+                    "--out", str(root / "outputs"), "--prompt-inject", "Dinner is tonight.",
+                    "--image", str(image)]
             with patch.dict(os.environ, {"OPENROUTER_API_KEY": "fake"}), \
                     patch.object(sys, "argv", argv), \
                     patch.object(app.httpx, "AsyncClient", client_factory):
                 self.assertEqual(await app.main(), 0)
                 self.assertEqual(len(requests), 2)
+                summary = next((root / "outputs").glob("*/summary.md")).read_text(encoding="utf-8")
+                self.assertTrue(summary.startswith("Suggest a cocktail\n"))
+                self.assertIn("Suggest a cocktail\n\nDinner is tonight.", summary)
+                self.assertEqual((root / "prompt.txt").read_text(), "Suggest a cocktail")
+                self.assertIn("Image supplied: cabinet.PNG", summary)
+                self.assertNotIn("data:image", summary)
                 for body in requests:
                     content = body["messages"][0]["content"]
-                    self.assertEqual(content[0], {"type": "text", "text": "Suggest a cocktail"})
+                    self.assertEqual(content[0], {"type": "text", "text": "Suggest a cocktail\n\nDinner is tonight."})
                     self.assertEqual(content[1]["type"], "image_url")
                     prefix, encoded = content[1]["image_url"]["url"].split(",", 1)
                     self.assertEqual(prefix, "data:image/png;base64")
@@ -135,7 +154,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
     async def test_cli_env_utf8_bom_and_output(self):
         real_client = httpx.AsyncClient
         def handler(request):
-            self.assertEqual(json.loads(request.content)["messages"][0]["content"], "Prompt café")
+            self.assertEqual(json.loads(request.content)["messages"][0]["content"], "Prompt café\n\nToday's date is 2026-10-22.")
             self.assertEqual(request.headers["Authorization"], "Bearer from-dotenv")
             return httpx.Response(200, json={"choices": [{"message": {"content": "Done"}}]})
         def client_factory(**kwargs):
@@ -145,11 +164,43 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
             (root / "prompt.txt").write_text("Prompt café", encoding="utf-8-sig")
             (root / ".env").write_text("OPENROUTER_API_KEY=from-dotenv\n")
             argv = ["compare_models.py", str(root / "prompt.txt"), "--env", str(root / ".env"),
-                    "--out", str(root / "outputs"), "--models", "one", "two"]
+                    "--out", str(root / "outputs"), "--models", "one", "two",
+                    "--prompt-inject", "Today's date is 2026-10-22."]
             with patch.dict(os.environ, {}, clear=True), patch.object(sys, "argv", argv), \
                     patch.object(app.httpx, "AsyncClient", client_factory):
                 self.assertEqual(await app.main(), 0)
             self.assertEqual(len(list((root / "outputs").glob("*/*.txt"))), 2)
+            summary = next((root / "outputs").glob("*/summary.md")).read_text(encoding="utf-8")
+            self.assertTrue(summary.startswith("Prompt café\n"))
+            self.assertIn("Prompt café\n\nToday's date is 2026-10-22.", summary)
+            self.assertLess(summary.index("## Run statistics"), summary.index("## Responses"))
+            self.assertIn("### one", summary)
+            self.assertIn("### two", summary)
+            self.assertEqual(summary.count("\nDone"), 2)
+
+    async def test_summary_mixed_results_and_stats(self):
+        def handler(request):
+            model = json.loads(request.content)["model"]
+            if model == "bad":
+                return httpx.Response(429, json={"error": "rate limited"})
+            return httpx.Response(200, json={
+                "choices": [{"message": {"content": "Full response café\n\nSecond paragraph"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "cost": 0},
+            })
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+                await asyncio.gather(*[
+                    app.run_model(client, model, "A prompt", folder, i, 42)
+                    for i, model in enumerate(("good", "bad"), 1)
+                ])
+            app.write_summary(folder, "A prompt")
+            summary = (folder / "summary.md").read_text(encoding="utf-8")
+            self.assertIn("| good | OK | 10 | 20 | 30 |", summary)
+            self.assertIn("$0.0000000000", summary)
+            self.assertIn("| bad | ERROR | unavailable | unavailable | unavailable |", summary)
+            self.assertIn("Full response café\n\nSecond paragraph", summary)
+            self.assertIn("HTTPStatusError", summary)
 
     async def test_cli_config_models_and_validation(self):
         real_client = httpx.AsyncClient

@@ -10,6 +10,7 @@ import json
 import os
 import re
 import time
+from urllib.parse import quote
 from datetime import datetime
 from pathlib import Path
 
@@ -17,14 +18,17 @@ import httpx
 from dotenv import load_dotenv
 
 
-async def run_model(client, model, prompt, folder, index, max_tokens):
+async def run_model(client, model, prompt, folder, index, max_tokens, web_search=False):
     start = time.perf_counter()
     data, status = {}, "OK"
     try:
+        payload = {"model": model, "messages": [{"role": "user", "content": prompt}],
+                   "max_tokens": max_tokens, "stream": False}
+        if web_search:
+            payload["tools"] = [{"type": "openrouter:web_search"}]
         response = await client.post(
             "https://openrouter.ai/api/v1/chat/completions",
-            json={"model": model, "messages": [{"role": "user", "content": prompt}],
-                  "max_tokens": max_tokens, "stream": False},
+            json=payload,
         )
         response.raise_for_status()
         data = response.json()
@@ -65,9 +69,40 @@ async def run_model(client, model, prompt, folder, index, max_tokens):
     return status == "OK"
 
 
+def write_summary(folder, prompt, image=None):
+    """Combine this run's saved outputs into a Markdown report."""
+    lines = [prompt.strip(), ""]
+    if image is not None:
+        lines.extend([f"Image supplied: {image.name}", ""])
+    lines.extend([
+        "## Run statistics", "",
+        "| Model | Status | Input tokens | Output tokens | Total tokens | Time (seconds) | Cost (USD) |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ])
+    responses = []
+    for output in sorted(folder.glob("*.txt")):
+        headers, text = output.read_text(encoding="utf-8").split("\n--- RESPONSE ---\n", 1)
+        fields = dict(line.split(": ", 1) for line in headers.splitlines() if ": " in line)
+        model = fields["Requested model"]
+        values = [model, fields["Status"], fields["Input tokens"], fields["Output tokens"],
+                  fields["Total tokens"], fields["Response time (complete HTTP request)"].removesuffix(" seconds"),
+                  fields["Cost (USD, reported by OpenRouter)"]]
+        lines.append("| " + " | ".join(value.replace("|", "\\|").replace("\n", " ") for value in values) + " |")
+        responses.extend(["", f"### {model}", "",
+                          f"[Original output]({quote(output.name)})", "", text.strip()])
+    lines.extend(["", "Time is the full HTTP request duration. Output token counts include reasoning "
+                  "tokens when reported by the provider. Cost is reported by OpenRouter.",
+                  "", "## Responses", *responses, ""])
+    summary = folder / "summary.md"
+    summary.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Summary: {summary}")
+
+
 async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("prompt", type=Path, help="UTF-8 .txt prompt file")
+    parser.add_argument("--prompt-inject", help="Text to append to the prompt")
+    parser.add_argument("--web-search", action="store_true", help="Enable OpenRouter's web search server tool")
     parser.add_argument("--image", type=Path, help="Local JPEG, PNG, WebP, or GIF image to send with the prompt")
     parser.add_argument("--models", nargs="+", help="OpenRouter model IDs (overrides config)")
     parser.add_argument("--config", type=Path,
@@ -101,6 +136,9 @@ async def main():
         parser.error(str(exc))
     if not prompt.strip():
         parser.error("Prompt file is empty")
+    if args.prompt_inject:
+        prompt = prompt.rstrip() + "\n\n" + args.prompt_inject
+    prompt_text = prompt
     if args.image is not None:
         mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
                 ".webp": "image/webp", ".gif": "image/gif"}.get(args.image.suffix.lower())
@@ -123,9 +161,10 @@ async def main():
         headers={"Authorization": f"Bearer {key}"}, timeout=args.timeout,
     ) as client:
         results = await asyncio.gather(*[
-            run_model(client, model, prompt, folder, i, args.max_tokens)
+            run_model(client, model, prompt, folder, i, args.max_tokens, args.web_search)
             for i, model in enumerate(args.models, start=1)
         ])
+    write_summary(folder, prompt_text, args.image)
     return 0 if all(results) else 1
 
 

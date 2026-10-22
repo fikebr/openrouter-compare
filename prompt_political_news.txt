@@ -1,0 +1,11 @@
+Search the web for the biggest U.S. political news story about an event that happened yesterday. Interpret "yesterday" using the America/Chicago time zone, and state the exact date. Distinguish the date the event happened from the date an article was published. Choose the story with the greatest national significance and briefly explain your choice.
+
+First, give a short factual overview supported by links to reliable sources. Then summarize the same story three times:
+
+1. From a left-wing U.S. perspective: emphasize the concerns, values, and implications a progressive audience would likely prioritize.
+2. From a right-wing U.S. perspective: emphasize the concerns, values, and implications a conservative audience would likely prioritize.
+3. From a Canadian perspective: emphasize the story's relevance to Canada, including any implications for Canada-U.S. relations, trade, security, or Canadian public policy.
+
+Use a clear heading for each perspective and aim for 150-200 words per summary. Keep the underlying facts consistent across all three. Separate verified facts from interpretation, avoid stereotypes, and do not imply that everyone in a political group or country shares one view. Cite sources for factual claims and identify material uncertainty or disagreement.
+
+If you cannot search the web or verify yesterday's events, say so explicitly instead of inventing current news or sources.

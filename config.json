@@ -2,6 +2,7 @@
   "models": [
     "anthropic/claude-opus-5.5",
     "meta/muse-wonder",
-    "openai/gpt-6-luna"
+    "openai/gpt-6-luna",
+    "openai/gpt-6.1-sol"
   ]
 }
